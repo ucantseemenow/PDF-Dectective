@@ -1,0 +1,101 @@
+Step-by-Step: Use the Blackbook to Train a Better Detection Model
+
+---
+
+#### **1. Understand What the Blackbook Contains**
+
+If **Blackbook** refers to a list or dataset (YARA rules, signatures, strings, keywords, etc.):
+
+* Open the **Blackbook** file (maybe a `.txt`, `.csv`, `.json`, or `.yara` file).
+* Identify what kind of **features** or **rules** it contains (e.g., JavaScript in PDF, suspicious keywords, embedded files).
+
+> Example:
+> If it lists entries like `"/JS"`, `"/Launch"`, `"AA"` etc., these are potential malicious indicators.
+
+---
+
+#### **2. Extract Features From the Blackbook**
+
+Update your `part 2.py` script to:
+
+* Load Blackbook rules.
+* Scan PDF files for these features.
+* Count how many indicators are matched.
+
+```python
+def load_blackbook(file_path):
+    with open(file_path, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+def extract_blackbook_features(pdf_content, blackbook_rules):
+    return [rule for rule in blackbook_rules if rule in pdf_content]
+```
+
+---
+
+#### **3. Build a Dataset (if not already)**
+
+You’ll need labeled PDFs:
+
+* **Malicious PDFs** (e.g., from VirusShare, Contagio, or your own samples).
+* **Benign PDFs** (e.g., books, papers).
+
+For each PDF:
+
+* Extract features (Blackbook hits, JavaScript, embedded files, etc.).
+* Label as 1 (malicious) or 0 (benign).
+
+Save this as a `.csv`:
+
+```csv
+js_count,launch_count,obj_count,blackbook_hit_count,label
+3,1,12,5,1
+0,0,10,0,0
+```
+
+---
+
+#### **4. Train a Machine Learning Model**
+
+Use **scikit-learn**:
+
+```python
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import pandas as pd
+
+# Load dataset
+df = pd.read_csv('pdf_dataset.csv')
+X = df.drop('label', axis=1)
+y = df['label']
+
+# Split and train
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+clf = RandomForestClassifier()
+clf.fit(X_train, y_train)
+print("Accuracy:", clf.score(X_test, y_test))
+```
+
+---
+
+#### **5. Use the Model in `part 2.py`**
+
+* Extract features from the input PDF as you did during training.
+* Load your trained model (`joblib` or `pickle`) and predict.
+
+```python
+import joblib
+
+model = joblib.load("pdf_detector_model.pkl")
+features = [js_count, launch_count, obj_count, blackbook_hit_count]
+result = model.predict([features])
+print("Malicious" if result[0] == 1 else "Benign")
+```
+
+---
+
+#### **6. Improve Detection Further**
+
+* Add more **obfuscation checks** (base64, hex encoding).
+* Use **PDF libraries** like `pdfminer.six` or `PyMuPDF` for deep extraction.
+* Integrate **Blackbook hits as weights** or priority features.
