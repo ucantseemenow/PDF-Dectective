@@ -1,0 +1,158 @@
+Step 1: Prepare Your Files and Folders**
+
+**Folder structure:**
+
+```
+PDF-Detective/
+│
+├── part2.py                 <-- Final detection code
+├── train_model.py           <-- Training script
+├── blackbook.txt            <-- List of malicious indicators (keywords)
+├── dataset/
+│   ├── malicious/
+│   │   └── malware1.pdf ...
+│   └── benign/
+│       └── normal1.pdf ...
+└── pdf_dataset.csv          <-- Output of feature extraction (for model training)
+```
+
+---
+
+### **Step 2: Fill `blackbook.txt`**
+
+Example content:
+
+```
+/JS
+/Launch
+/JavaScript
+/OpenAction
+/AA
+/EmbeddedFile
+/Names
+```
+
+---
+
+### **Step 3: Feature Extraction and Dataset Generation**
+
+Run this script to extract features and label PDFs:
+
+**➡ `train_model.py` (Step 1: Extract features + Step 2: Train model)**
+
+```python
+import os
+import fitz  # PyMuPDF
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import joblib
+
+def load_blackbook(file_path="blackbook.txt"):
+    with open(file_path, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+def extract_features(pdf_path, blackbook):
+    try:
+        with fitz.open(pdf_path) as doc:
+            text = ""
+            for page in doc:
+                text += page.get_text()
+
+            js_count = text.count("/JS")
+            launch_count = text.count("/Launch")
+            obj_count = text.count("obj")
+            blackbook_hits = sum(1 for rule in blackbook if rule in text)
+
+            return [js_count, launch_count, obj_count, blackbook_hits]
+    except:
+        return [0, 0, 0, 0]
+
+def build_dataset():
+    blackbook = load_blackbook()
+    data = []
+    labels = []
+
+    for label, folder in enumerate(["benign", "malicious"]):
+        folder_path = os.path.join("dataset", folder)
+        for file in os.listdir(folder_path):
+            if file.endswith(".pdf"):
+                path = os.path.join(folder_path, file)
+                features = extract_features(path, blackbook)
+                data.append(features)
+                labels.append(label)
+
+    df = pd.DataFrame(data, columns=["js_count", "launch_count", "obj_count", "blackbook_hits"])
+    df["label"] = labels
+    df.to_csv("pdf_dataset.csv", index=False)
+    print("Dataset created and saved to pdf_dataset.csv")
+
+def train_model():
+    df = pd.read_csv("pdf_dataset.csv")
+    X = df.drop("label", axis=1)
+    y = df["label"]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    clf = RandomForestClassifier()
+    clf.fit(X_train, y_train)
+    joblib.dump(clf, "pdf_model.pkl")
+    print("Model trained and saved to pdf_model.pkl")
+    print("Accuracy:", clf.score(X_test, y_test))
+
+if __name__ == "__main__":
+    build_dataset()
+    train_model()
+```
+
+---
+
+### **Step 4: Use `part2.py` to Detect New PDFs**
+
+**➡ `part2.py` (Real-time detection using trained model)**
+
+```python
+import fitz  # PyMuPDF
+import joblib
+
+def load_blackbook(file_path="blackbook.txt"):
+    with open(file_path, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+def extract_features(pdf_path, blackbook):
+    try:
+        with fitz.open(pdf_path) as doc:
+            text = ""
+            for page in doc:
+                text += page.get_text()
+
+            js_count = text.count("/JS")
+            launch_count = text.count("/Launch")
+            obj_count = text.count("obj")
+            blackbook_hits = sum(1 for rule in blackbook if rule in text)
+
+            return [js_count, launch_count, obj_count, blackbook_hits]
+    except:
+        return [0, 0, 0, 0]
+
+def detect_pdf(pdf_path):
+    model = joblib.load("pdf_model.pkl")
+    blackbook = load_blackbook()
+    features = extract_features(pdf_path, blackbook)
+    prediction = model.predict([features])
+    print(f"Result for {pdf_path}: {'Malicious' if prediction[0] == 1 else 'Benign'}")
+
+if __name__ == "__main__":
+    path = input("Enter path to PDF: ")
+    detect_pdf(path)
+```
+
+---
+
+##  Summary of Output and Flow
+
+| Component        | Purpose                                         |
+| ---------------- | ----------------------------------------------- |
+| `blackbook.txt`  | Malicious indicators to scan for                |
+| `train_model.py` | Extracts features, builds dataset, trains model |
+| `pdf_model.pkl`  | Trained RandomForest model                      |
+| `part2.py`       | Takes new PDF, predicts if it's malicious       |
