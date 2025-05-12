@@ -20,3 +20,4 @@ Also try this to confirm where yara is installed:
 python -m pip show yara-python
 Make sure the pip and python3 are using the same installation path.
 
+![image](https://github.com/user-attachments/assets/751fb577-285e-4005-9bf9-ef64191b2976)
