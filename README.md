@@ -38,3 +38,4 @@ pip install --no-index --find-links=packages -r requirements.txt
 ![image](https://github.com/user-attachments/assets/b407490d-87ba-45ec-abb2-b605ea9ca136)
 
 
+![image](https://github.com/user-attachments/assets/6f31e495-6931-4589-b5b7-d761939a8d1d)
