@@ -1,0 +1,165 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import hashlib
+import os
+import datetime
+import yara
+import requests
+
+# === CONFIGURATION ===
+VT_API_KEY = "46138c884ccbf7700bf26f61134b3038c076c583705249138390f4814a639368"
+VT_URL = "https://www.virustotal.com/api/v3/files/"
+
+YARA_RULE = '''
+rule SuspiciousPDF
+{
+    strings:
+        $js = "/JavaScript"
+        $launch = "/Launch"
+        $embedded = "/EmbeddedFile"
+        $action = "/OpenAction"
+    condition:
+        any of them
+}
+'''
+
+# === UTILITY FUNCTIONS ===
+
+def get_hashes(filepath):
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        while True:
+            chunk = f.read(8192)
+            if not chunk:
+                break
+            md5.update(chunk)
+            sha1.update(chunk)
+            sha256.update(chunk)
+    return md5.hexdigest(), sha1.hexdigest(), sha256.hexdigest()
+
+def yara_scan(data):
+    try:
+        rules = yara.compile(source=YARA_RULE)
+        matches = rules.match(data=data)
+        return [match.rule for match in matches]
+    except Exception as e:
+        print(f"[YARA Error] {e}")
+        return []
+
+def virus_total_lookup(sha256_hash):
+    headers = {"x-apikey": VT_API_KEY}
+    try:
+        response = requests.get(VT_URL + sha256_hash, headers=headers)
+        if response.status_code == 200:
+            return response.json()["data"]["attributes"]["last_analysis_stats"]
+        else:
+            return {"error": f"VirusTotal lookup failed. Status: {response.status_code}"}
+    except Exception as e:
+        return {"error": f"VirusTotal request failed: {str(e)}"}
+
+def analyze_pdf(filepath):
+    result = {
+        "filename": os.path.basename(filepath),
+        "hashes": {},
+        "yara_matches": [],
+        "vt_result": {},
+        "suspicious": False,
+        "error": None
+    }
+
+    try:
+        with open(filepath, 'rb') as f:
+            header = f.read(5)
+            if not header.startswith(b"%PDF"):
+                raise ValueError("Not a valid PDF file.")
+
+        md5, sha1, sha256 = get_hashes(filepath)
+        result["hashes"] = {"MD5": md5, "SHA-1": sha1, "SHA-256": sha256}
+
+        with open(filepath, 'rb') as f:
+            raw_data = f.read()
+            matches = yara_scan(raw_data)
+            result["yara_matches"] = matches
+            result["suspicious"] = bool(matches)
+
+        result["vt_result"] = virus_total_lookup(sha256)
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+def save_report(result):
+    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_file = f"pdf_scan_report_{now}.txt"
+    with open(report_file, 'w') as f:
+        f.write(f"PDF Scan Report - {result['filename']}\n")
+        f.write("=" * 60 + "\n")
+        f.write("Hashes:\n")
+        for k, v in result["hashes"].items():
+            f.write(f" {k}: {v}\n")
+        f.write("\nYARA Matches:\n")
+        f.write(" " + ", ".join(result["yara_matches"]) if result["yara_matches"] else " None\n")
+        f.write("\nVirusTotal Results:\n")
+        vt = result["vt_result"]
+        if "error" in vt:
+            f.write(f" Error: {vt['error']}\n")
+        else:
+            for k, v in vt.items():
+                f.write(f" {k}: {v}\n")
+        f.write("\nVerdict:\n")
+        f.write(" ⚠️ Suspicious\n" if result["suspicious"] else " ✅ Clean\n")
+    return report_file
+
+# === GUI SETUP ===
+
+def choose_file():
+    filepath = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+    if not filepath:
+        return
+    output_text.delete(1.0, tk.END)
+    result = analyze_pdf(filepath)
+    output_text.insert(tk.END, f"File: {result['filename']}\n\n")
+
+    if result["error"]:
+        output_text.insert(tk.END, f"❌ Error: {result['error']}\n")
+        return
+
+    for k, v in result["hashes"].items():
+        output_text.insert(tk.END, f"{k}: {v}\n")
+
+    output_text.insert(tk.END, "\nYARA Matches:\n")
+    output_text.insert(tk.END, ", ".join(result["yara_matches"]) if result["yara_matches"] else " None\n")
+
+    output_text.insert(tk.END, "\nVirusTotal Analysis:\n")
+    vt = result["vt_result"]
+    if "error" in vt:
+        output_text.insert(tk.END, f" Error: {vt['error']}\n")
+    else:
+        for k, v in vt.items():
+            output_text.insert(tk.END, f" {k}: {v}\n")
+
+    verdict = "⚠️ Suspicious PDF\n" if result["suspicious"] else "✅ Clean PDF\n"
+    output_text.insert(tk.END, f"\nVerdict: {verdict}")
+
+    if messagebox.askyesno("Save Report", "Save scan report?"):
+        path = save_report(result)
+        messagebox.showinfo("Saved", f"Report saved as:\n{path}")
+
+# Launch GUI
+window = tk.Tk()
+window.title("PDF Malware Scanner")
+window.geometry("600x550")
+window.resizable(False, False)
+
+tk.Label(window, text="🔍 PDF Malware Scanner", font=("Helvetica", 16, "bold")).pack(pady=10)
+tk.Button(window, text="📂 Select PDF File", command=choose_file, font=("Helvetica", 12)).pack(pady=5)
+
+output_text = tk.Text(window, wrap=tk.WORD, font=("Courier", 9), width=70, height=25)
+output_text.pack(padx=10, pady=10)
+
+tk.Label(window, text="YARA + VT + Hashing | © 2025", font=("Arial", 8), fg="gray").pack(pady=5)
+
+window.mainloop()
